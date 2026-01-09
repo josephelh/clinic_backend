@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Patient, Appointment, ToothFinding, TreatmentStep
+from .models import Patient, Appointment, ToothFinding, TreatmentStep, Prescription
 from django.contrib.auth import get_user_model
 from django.db import connection
 
@@ -8,7 +8,7 @@ User = get_user_model()
 class ToothFindingSerializer(serializers.ModelSerializer):
     class Meta:
         model = ToothFinding
-        fields = ['id', 'tooth_number', 'condition', 'surface', 'notes', 'created_at']
+        fields = ['id', 'patient', 'tooth_number', 'condition', 'surface', 'notes', 'found_in', 'created_at']
 
 
 class TreatmentStepSerializer(serializers.ModelSerializer):
@@ -18,38 +18,46 @@ class TreatmentStepSerializer(serializers.ModelSerializer):
     class Meta:
         model = TreatmentStep
         fields = [
-            'id', 'tooth_number', 'step_type', 'step_type_display', 
-            'description', 'status', 'status_display', 'created_at', 'updated_at'
+            'id', 'appointment', 'tooth_number', 'step_type', 'step_type_display', 
+            'description', 'price', 'status', 'status_display', 'created_at', 'updated_at'
         ]
 
-class PatientSerializer(serializers.ModelSerializer):
-    # 1. Include the property from the Model
-    full_name = serializers.ReadOnlyField() 
-    
-    # 2. Include the Tooth History (FDI logic)
-    # 'toothfinding_set' is the default name Django gives to the reverse relationship
-    findings = ToothFindingSerializer(many=True, read_only=True, source='toothfinding_set')
+class PrescriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Prescription
+        fields = ['id', 'patient', 'appointment', 'medications', 'notes', 'created_at']
 
+# serializers.py
+
+class PatientListSerializer(serializers.ModelSerializer):
+    """
+    Used ONLY for the Patient List table. 
+    Excludes findings, alerts, and heavy medical history.
+    """
     class Meta:
         model = Patient
-        # We list them explicitly to control the ORDER and ensure 
-        # computed fields like 'full_name' are included.
         fields = [
             'id', 
             'first_name', 
-            'last_name', 
+            'last_name',
             'full_name', 
-            'cin', 
-            'phone', 
-            'insurance_type', 
-            'insurance_id', 
-            'findings', # This is your FDI history!
-            'created_at'
+            'gender', 
+            'date_of_birth', 
+            'is_high_risk', 
+            'phone' # For O(1) search in frontend if needed
         ]
+
+class PatientDetailSerializer(serializers.ModelSerializer):
+    """
+    Used ONLY for the EMR Hub. Includes everything.
+    """
+    findings = ToothFindingSerializer(many=True, read_only=True)
     
-    def create(self, validated_data):
-        """Override create to ensure proper patient creation"""
-        return Patient.objects.create(**validated_data)
+    class Meta:
+        model = Patient
+        fields = '__all__' # Or specify all heavy fields
+        
+
 
 class AppointmentSerializer(serializers.ModelSerializer):
     # We pull these from the related Patient model
@@ -87,7 +95,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'id', 'Subject', 'StartTime', 'EndTime', 
             'Description', 'Status', 'CategoryColor',
             'patient', 'patient_name', 'patient_phone','doctor_name', 'doctor',
-            'tooth_number', 'treatment_steps'
+            'treatment_steps'
         ]
 
     def get_patient_name(self, obj):
